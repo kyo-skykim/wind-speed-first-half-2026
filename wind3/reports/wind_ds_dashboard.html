@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Wind DS Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#0f1620;--card:#18222e;--line:#283848;--txt:#e6edf3;--mut:#8a9bad;
+        --accent:#4ea3ff;--good:#37d39b;--warn:#ffb454;--bad:#ff6b6b;--violet:#b18cff;}
+  *{box-sizing:border-box} 
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font-family:'Segoe UI',Tahoma,sans-serif;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+  h1{font-size:24px;margin:0 0 4px} h2{font-size:18px;margin:34px 0 14px;
+     border-left:4px solid var(--accent);padding-left:10px}
+  .sub{color:var(--mut);font-size:13px;margin-bottom:8px}
+  .grid{display:grid;gap:14px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .kpi .v{font-size:26px;font-weight:700} .kpi .l{color:var(--mut);font-size:12px;margin-top:2px}
+  .two{grid-template-columns:1.6fr 1fr} .three{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:820px){.two,.three{grid-template-columns:1fr}}
+  canvas{max-height:300px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:12px;font-weight:600}
+  .note{background:#1d2735;border:1px dashed var(--line);border-radius:10px;
+        padding:12px 14px;font-size:13px;color:var(--mut);margin-top:10px}
+  .note b{color:var(--txt)}
+  .cm{display:grid;grid-template-columns:auto 1fr 1fr;gap:6px;font-size:13px;margin-top:6px}
+  .cm div{padding:10px;border-radius:8px;text-align:center;background:#1d2735}
+  .cm .hd{background:transparent;color:var(--mut);font-weight:600}
+  .badge{font-size:11px;color:var(--mut)}
+  .arch{display:flex;flex-direction:column;gap:6px}
+  .bar{height:8px;border-radius:4px;background:#22303f;overflow:hidden}
+  .bar>i{display:block;height:100%}
+  .foot{color:var(--mut);font-size:12px;margin-top:30px;text-align:center}
+</style>
+</head>
+<body><div class="wrap">
+  <h1>🌬️ Wind Data Science Dashboard</h1>
+  <div class="sub" id="period"></div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <h2>1 · พยากรณ์ % ลมสงบ ล่วงหน้า 30 วัน (Forecast)</h2>
+  <div class="grid two">
+    <div class="card"><canvas id="fcChart"></canvas></div>
+    <div class="card">
+      <div class="sub">เปรียบเทียบโมเดล (backtest เดือนสุดท้าย)</div>
+      <table id="fcTable"></table>
+      <div class="note" id="fcNote"></div>
+    </div>
+  </div>
+
+  <h2>2 · แนวโน้มรายเดือน (Seasonality)</h2>
+  <div class="grid two">
+    <div class="card"><canvas id="monthBands"></canvas></div>
+    <div class="card"><canvas id="monthGood"></canvas></div>
+  </div>
+
+  <h2>3 · ทำนายคุณภาพลม "พรุ่งนี้" (Classification)</h2>
+  <div class="grid three" id="clsKpis"></div>
+  <div class="grid two" style="margin-top:14px">
+    <div class="card"><canvas id="impChart"></canvas></div>
+    <div class="card">
+      <div class="sub">Confusion matrix (holdout • แถว=จริง, คอลัมน์=ทำนาย)</div>
+      <div class="cm" id="cm"></div>
+      <div class="note" id="clsNote"></div>
+    </div>
+  </div>
+
+  <h2>4 · กลุ่มลักษณะวัน (Clustering archetypes)</h2>
+  <div class="grid two">
+    <div class="card" id="archCards"></div>
+    <div class="card"><canvas id="clChart"></canvas></div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+const D = {"meta": {"n_days": 151, "date_min": "2026-01-01", "date_max": "2026-05-31", "calm_mean": 78.78, "calm_std": 12.03, "good_days": 117, "fair_days": 32, "poor_days": 2}, "history": {"dates": ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-10", "2026-01-11", "2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15", "2026-01-16", "2026-01-17", "2026-01-18", "2026-01-19", "2026-01-20", "2026-01-21", "2026-01-22", "2026-01-23", "2026-01-24", "2026-01-25", "2026-01-26", "2026-01-27", "2026-01-28", "2026-01-29", "2026-01-30", "2026-01-31", "2026-02-01", "2026-02-02", "2026-02-03", "2026-02-04", "2026-02-05", "2026-02-06", "2026-02-07", "2026-02-08", "2026-02-09", "2026-02-10", "2026-02-11", "2026-02-12", "2026-02-13", "2026-02-14", "2026-02-15", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20", "2026-02-21", "2026-02-22", "2026-02-23", "2026-02-24", "2026-02-25", "2026-02-26", "2026-02-27", "2026-02-28", "2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05", "2026-03-06", "2026-03-07", "2026-03-08", "2026-03-09", "2026-03-10", "2026-03-11", "2026-03-12", "2026-03-13", "2026-03-14", "2026-03-15", "2026-03-16", "2026-03-17", "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22", "2026-03-23", "2026-03-24", "2026-03-25", "2026-03-26", "2026-03-27", "2026-03-28", "2026-03-29", "2026-03-30", "2026-03-31", "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04", "2026-04-05", "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09", "2026-04-10", "2026-04-11", "2026-04-12", "2026-04-13", "2026-04-14", "2026-04-15", "2026-04-16", "2026-04-17", "2026-04-18", "2026-04-19", "2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23", "2026-04-24", "2026-04-25", "2026-04-26", "2026-04-27", "2026-04-28", "2026-04-29", "2026-04-30", "2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08", "2026-05-09", "2026-05-10", "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14", "2026-05-15", "2026-05-16", "2026-05-17", "2026-05-18", "2026-05-19", "2026-05-20", "2026-05-21", "2026-05-22", "2026-05-23", "2026-05-24", "2026-05-25", "2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-05-31"], "calm": [99.8, 94.6, 77.8, 90.3, 78.4, 80.3, 59.3, 53.6, 58.7, 81.8, 82.6, 77.9, 89.8, 93.4, 98.0, 99.2, 99.2, 99.2, 88.7, 96.7, 97.7, 92.2, 79.6, 92.8, 93.2, 94.9, 88.6, 96.7, 98.1, 99.0, 98.6, 98.6, 90.1, 80.7, 85.0, 98.0, 88.2, 98.1, 92.6, 90.8, 94.4, 82.9, 83.9, 84.5, 85.3, 89.7, 87.1, 84.6, 85.9, 74.5, 80.6, 83.6, 78.6, 79.3, 80.2, 64.7, 80.2, 92.3, 83.2, 78.2, 76.3, 72.3, 69.3, 82.6, 79.8, 86.0, 90.1, 88.2, 78.3, 87.7, 80.3, 57.4, 87.3, 83.3, 79.6, 69.5, 66.8, 60.7, 87.2, 61.9, 74.2, 72.7, 75.5, 75.5, 85.8, 69.0, 64.8, 70.4, 61.4, 80.4, 77.0, 65.0, 62.8, 76.9, 71.6, 56.4, 63.8, 80.5, 74.1, 67.2, 62.4, 59.8, 73.8, 80.2, 76.3, 71.6, 75.8, 75.7, 69.7, 72.9, 80.5, 74.4, 73.6, 67.9, 75.6, 66.9, 65.6, 71.1, 55.0, 58.8, 62.1, 75.2, 68.8, 67.8, 74.6, 72.4, 71.2, 71.1, 71.2, 77.3, 77.0, 86.5, 84.8, 78.7, 89.6, 66.7, 66.2, 46.6, 32.1, 77.8, 77.8, 86.3, 76.7, 80.9, 86.0, 79.5, 76.4, 86.5, 91.0, 83.6, 69.6]}, "monthly": {"months": ["Jan", "Feb", "Mar", "Apr", "May"], "calm": [88.09, 85.63, 75.89, 70.1, 74.58], "light": [8.77, 13.41, 22.91, 27.65, 21.32], "gentle": [2.91, 0.92, 1.17, 2.24, 3.45], "moderate": [0.22, 0.03, 0.02, 0.01, 0.6], "fresh": [0.01, 0.01, 0.01, 0.0, 0.04], "strong": [0.0, 0.0, 0.0, 0.0, 0.01], "good_pct": [90.3, 96.4, 71.0, 56.7, 74.2]}, "forecast": {"model": "SARIMAX(1,1,1)", "scores": {"Naive": {"RMSE": 19.75, "MAE": 18.29}, "Holt": {"RMSE": 21.95, "MAE": 20.05}, "SARIMAX(1,1,1)": {"RMSE": 14.57, "MAE": 12.1}, "SARIMAX(2,0,1)+trend": {"RMSE": 23.38, "MAE": 20.71}}, "backtest": {"dates": ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05", "2026-05-06", "2026-05-07", "2026-05-08", "2026-05-09", "2026-05-10", "2026-05-11", "2026-05-12", "2026-05-13", "2026-05-14", "2026-05-15", "2026-05-16", "2026-05-17", "2026-05-18", "2026-05-19", "2026-05-20", "2026-05-21", "2026-05-22", "2026-05-23", "2026-05-24", "2026-05-25", "2026-05-26", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-05-31"], "actual": [62.1, 75.2, 68.8, 67.8, 74.6, 72.4, 71.2, 71.1, 71.2, 77.3, 77.0, 86.5, 84.8, 78.7, 89.6, 66.7, 66.2, 46.6, 32.1, 77.8, 77.8, 86.3, 76.7, 80.9, 86.0, 79.5, 76.4, 86.5, 91.0, 83.6, 69.6], "pred": [63.75, 65.37, 65.9, 66.08, 66.13, 66.15, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16, 66.16]}, "future": {"dates": ["2026-06-01", "2026-06-02", "2026-06-03", "2026-06-04", "2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08", "2026-06-09", "2026-06-10", "2026-06-11", "2026-06-12", "2026-06-13", "2026-06-14", "2026-06-15", "2026-06-16", "2026-06-17", "2026-06-18", "2026-06-19", "2026-06-20", "2026-06-21", "2026-06-22", "2026-06-23", "2026-06-24", "2026-06-25", "2026-06-26", "2026-06-27", "2026-06-28", "2026-06-29", "2026-06-30"], "mean": [73.57, 75.27, 75.99, 76.3, 76.43, 76.49, 76.51, 76.52, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53, 76.53], "lo": [62.21, 62.42, 62.63, 62.67, 62.61, 62.51, 62.39, 62.26, 62.12, 61.99, 61.86, 61.73, 61.6, 61.47, 61.34, 61.21, 61.09, 60.96, 60.84, 60.71, 60.59, 60.47, 60.35, 60.23, 60.11, 59.99, 59.88, 59.76, 59.64, 59.53], "hi": [84.93, 88.11, 89.35, 89.93, 90.26, 90.47, 90.64, 90.79, 90.93, 91.07, 91.2, 91.34, 91.47, 91.6, 91.73, 91.85, 91.98, 92.1, 92.23, 92.35, 92.47, 92.6, 92.72, 92.84, 92.95, 93.07, 93.19, 93.31, 93.42, 93.54]}}, "classify": {"target": "พรุ่งนี้เป็นวัน GOOD (calm>=70%) หรือไม่", "features": ["calm", "calm_3d", "light", "gentle", "moderate", "month_num"], "n_train": 112, "n_test": 38, "pos_rate": 0.773, "model": {"name": "RandomForest", "cv_accuracy": 0.736, "accuracy": 0.658, "f1": 0.745, "auc": 0.618, "cm": [[19, 6], [7, 6]]}, "baselines": {"majority_acc": 0.658, "persistence_acc": 0.711, "persistence_cv": 0.736}, "importance": {"calm_3d": 0.283, "calm": 0.233, "light": 0.207, "gentle": 0.161, "month_num": 0.081, "moderate": 0.035}}, "cluster": {"k": 3, "silhouette": {"2": 0.729, "3": 0.427, "4": 0.481, "5": 0.489}, "months": ["Jan", "Feb", "Mar", "Apr", "May"], "items": [{"id": 0, "label": "Very Calm", "size": 62, "calm": 89.96, "light": 9.28, "gentle": 0.68, "moderate": 0.06, "by_month": [23, 22, 9, 0, 8]}, {"id": 1, "label": "Breezy", "size": 85, "calm": 71.94, "light": 25.6, "gentle": 2.41, "moderate": 0.04, "by_month": [7, 6, 22, 30, 20]}, {"id": 2, "label": "Windy", "size": 4, "calm": 50.9, "light": 24.1, "gentle": 19.82, "moderate": 4.97, "by_month": [1, 0, 0, 0, 3]}]}};
+const C={accent:'#4ea3ff',good:'#37d39b',warn:'#ffb454',bad:'#ff6b6b',violet:'#b18cff',mut:'#8a9bad',grid:'#283848'};
+Chart.defaults.color='#8a9bad'; Chart.defaults.font.family="'Segoe UI',Tahoma,sans-serif";
+Chart.defaults.plugins.legend.labels.boxWidth=12;
+const $=id=>document.getElementById(id);
+
+// period + KPIs
+$('period').textContent=`ข้อมูล ${D.meta.n_days} วัน • ${D.meta.date_min} → ${D.meta.date_max}`;
+const kp=[
+ ['วันทั้งหมด',D.meta.n_days,''],
+ ['% ลมสงบเฉลี่ย',D.meta.calm_mean+'%','σ='+D.meta.calm_std],
+ ['วัน GOOD',D.meta.good_days,(100*D.meta.good_days/D.meta.n_days).toFixed(0)+'% ของวัน'],
+ ['โมเดล forecast',D.forecast.model,'RMSE '+D.forecast.scores[D.forecast.model].RMSE],
+ ['คาดการณ์ มิ.ย.', (D.forecast.future.mean.reduce((a,b)=>a+b,0)/D.forecast.future.mean.length).toFixed(1)+'%','calm เฉลี่ย'],
+];
+$('kpis').innerHTML=kp.map(k=>`<div class="card kpi"><div class="v">${k[1]}</div><div class="l">${k[0]}</div><div class="badge">${k[2]}</div></div>`).join('');
+
+// ---- forecast chart ----
+const hN=60, hist=D.history;
+const hd=hist.dates.slice(-hN), hc=hist.calm.slice(-hN);
+const fd=D.forecast.future.dates, fm=D.forecast.future.mean, flo=D.forecast.future.lo, fhi=D.forecast.future.hi;
+const labels=[...hd,...fd];
+const pad=arr=>[...Array(hd.length).fill(null),...arr];
+const ds=[
+ {label:'จริง (calm %)',data:[...hc,...Array(fd.length).fill(null)],borderColor:C.accent,backgroundColor:'transparent',pointRadius:0,tension:.25,borderWidth:2},
+ {label:'พยากรณ์',data:pad(fm),borderColor:C.warn,backgroundColor:'transparent',pointRadius:0,borderDash:[5,4],tension:.25,borderWidth:2},
+];
+if(fhi){ds.push({label:'ช่วงเชื่อมั่น 80%',data:pad(fhi),borderColor:'transparent',backgroundColor:'rgba(255,180,84,.15)',pointRadius:0,fill:'+1'});
+        ds.push({label:'_lo',data:pad(flo),borderColor:'transparent',backgroundColor:'rgba(255,180,84,.15)',pointRadius:0,fill:false});}
+new Chart($('fcChart'),{type:'line',data:{labels,datasets:ds},
+ options:{plugins:{legend:{labels:{filter:i=>!i.text.startsWith('_')}}},
+ scales:{y:{title:{display:true,text:'% ลมสงบ'},grid:{color:C.grid}},
+         x:{ticks:{maxTicksLimit:8},grid:{display:false}}}}});
+
+// forecast table
+let tb='<tr><th>โมเดล</th><th>RMSE</th><th>MAE</th></tr>';
+Object.entries(D.forecast.scores).sort((a,b)=>a[1].RMSE-b[1].RMSE).forEach(([k,v])=>{
+ const win=k===D.forecast.model?` <span class="pill" style="background:${C.good}22;color:${C.good}">best</span>`:'';
+ tb+=`<tr><td>${k}${win}</td><td>${v.RMSE}</td><td>${v.MAE}</td></tr>`;});
+$('fcTable').innerHTML=tb;
+const naive=D.forecast.scores['Naive'].RMSE, bestr=D.forecast.scores[D.forecast.model].RMSE;
+$('fcNote').innerHTML=`<b>${D.forecast.model}</b> ดีกว่าการเดาแบบ Naive ราว <b>${(100*(naive-bestr)/naive).toFixed(0)}%</b> (RMSE ${bestr} vs ${naive}). มิ.ย. คาดว่าลมสงบจะทรงตัวแถว ~76%.`;
+
+// ---- monthly ----
+const M=D.monthly;
+new Chart($('monthBands'),{type:'bar',data:{labels:M.months,datasets:[
+ {label:'calm',data:M.calm,backgroundColor:C.good},
+ {label:'light',data:M.light,backgroundColor:C.accent},
+ {label:'gentle',data:M.gentle,backgroundColor:C.warn},
+ {label:'moderate',data:M.moderate,backgroundColor:C.bad},
+]},options:{plugins:{title:{display:true,text:'สัดส่วนช่วงลมเฉลี่ย/เดือน (%)'}},
+ scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,grid:{color:C.grid}}}}});
+new Chart($('monthGood'),{type:'line',data:{labels:M.months,datasets:[
+ {label:'% วัน GOOD',data:M.good_pct,borderColor:C.violet,backgroundColor:'rgba(177,140,255,.15)',fill:true,tension:.3,borderWidth:2,pointRadius:4}
+]},options:{plugins:{title:{display:true,text:'% วันลมดี (GOOD) ต่อเดือน'}},
+ scales:{y:{suggestedMin:50,suggestedMax:100,grid:{color:C.grid}},x:{grid:{display:false}}}}});
+
+// ---- classification ----
+const cl=D.classify, mo=cl.model, bl=cl.baselines;
+const ck=[
+ ['Model CV accuracy',(mo.cv_accuracy*100).toFixed(1)+'%','RandomForest (5-fold time CV)'],
+ ['Persistence baseline',(bl.persistence_cv*100).toFixed(1)+'%','กฎ "พรุ่งนี้=วันนี้"'],
+ ['ROC-AUC',mo.auc??'—','holdout'],
+];
+$('clsKpis').innerHTML=ck.map(k=>`<div class="card kpi"><div class="v">${k[1]}</div><div class="l">${k[0]}</div><div class="badge">${k[2]}</div></div>`).join('');
+// importance
+const imp=cl.importance, ik=Object.keys(imp), iv=Object.values(imp);
+new Chart($('impChart'),{type:'bar',data:{labels:ik,datasets:[{label:'Feature importance',data:iv,backgroundColor:C.accent}]},
+ options:{indexAxis:'y',plugins:{title:{display:true,text:'ความสำคัญของฟีเจอร์'},legend:{display:false}},
+ scales:{x:{grid:{color:C.grid}},y:{grid:{display:false}}}}});
+// confusion matrix [[TP,FN],[FP,TN]] rows=actual GOOD/NOT
+const cm=mo.cm;
+$('cm').innerHTML=`<div class="hd"></div><div class="hd">ทาย GOOD</div><div class="hd">ทาย NOT</div>
+ <div class="hd">จริง GOOD</div><div style="background:${C.good}33">${cm[0][0]}</div><div>${cm[0][1]}</div>
+ <div class="hd">จริง NOT</div><div>${cm[1][0]}</div><div style="background:${C.good}33">${cm[1][1]}</div>`;
+$('clsNote').innerHTML=`<b>ข้อค้นพบสำคัญ:</b> โมเดล ML ทำได้ ~เท่ากับกฎง่าย ๆ "พรุ่งนี้เหมือนวันนี้" (ทั้งคู่ ~74%). 
+ ฟีเจอร์ที่สำคัญสุดคือ <b>calm_3d / calm</b> ของวันนี้ → คุณภาพลมมี <b>ความต่อเนื่องสูง (persistent)</b> นี่คือสัญญาณพยากรณ์ที่แท้จริง ไม่ใช่ pattern ซับซ้อน`;
+
+// ---- clustering ----
+const cu=D.cluster, pal={'Very Calm':C.good,'Calm':'#7fd3ff','Breezy':C.warn,'Windy':C.bad};
+$('archCards').innerHTML='<div class="sub">3 กลุ่มลักษณะวัน (KMeans, k=3)</div>'+cu.items.map(it=>{
+ const col=pal[it.label]||C.accent;
+ return `<div class="arch" style="margin-bottom:12px">
+   <div><span class="pill" style="background:${col}22;color:${col}">${it.label}</span>
+   <span class="badge"> ${it.size} วัน • calm ${it.calm}% / light ${it.light}% / gentle ${it.gentle}%</span></div>
+   <div class="bar"><i style="width:${it.calm}%;background:${col}"></i></div></div>`;}).join('');
+// stacked bar: cluster composition by month
+new Chart($('clChart'),{type:'bar',data:{labels:cu.months,datasets:cu.items.map(it=>({
+   label:it.label,data:it.by_month,backgroundColor:pal[it.label]||C.accent}))},
+ options:{plugins:{title:{display:true,text:'จำนวนวันแต่ละกลุ่ม ต่อเดือน'}},
+ scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,grid:{color:C.grid}}}}});
+
+$('foot').textContent='สร้างจาก Daily_Wind_Speed_Frequency_Merged.xlsx • Forecast: SARIMAX • Classify: RandomForest • Cluster: KMeans';
+</script>
+</body></html>
