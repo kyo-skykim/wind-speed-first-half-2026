@@ -1,0 +1,1 @@
+# wind-speed-first-half-2026
